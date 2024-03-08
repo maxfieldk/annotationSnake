@@ -39,7 +39,7 @@ tryCatch(
     },
     error = function(e) {
         assign("inputs", list(
-            r_annotation_fragmentsjoined = "updated_ref/repeatmasker.gtf.rformatted.fragmentsjoined.csv"
+            r_annotation_fragmentsjoined = "annotations/repeatmasker.gtf.rformatted.fragmentsjoined.csv"
         ), env = globalenv())
         assign("params", list(l13 = conf$l13fasta), env = globalenv())
         assign("outputs", list(outfile = "RefAnalysis/element_analysis.outfile"), env = globalenv())
@@ -58,7 +58,9 @@ rmfragments <- read_csv(inputs$r_annotation_fragmentsjoined, col_names = TRUE)
 gtf <- GRanges(rmfragments)
 l1hsgtf <- gtf[grepl("L1HS", gtf$gene_id)]
 l1pa2gtf <- gtf[grepl("L1PA2", gtf$gene_id)]
-l1hspa2gtf <- c(l1hsgtf, l1pa2gtf)
+l1pa3gtf <- gtf[grepl("L1PA3", gtf$gene_id)]
+
+l1hspa2gtf <- c(c(l1hsgtf, l1pa2gtf), l1pa3gtf)
 gene_ids <- l1hspa2gtf$gene_id
 l1hspa2ss <- getSeq(fa, l1hspa2gtf)
 mcols(l1hspa2ss) <- mcols(l1hspa2gtf)
@@ -103,7 +105,9 @@ for (element in names(pos)) {
 gtfpass <- l1hspa2gtf[l1hspa2gtf$gene_id %in% pass]
 flsspass <- flss[pass]
 
-
+pos[["L1HS_17p12_2"]]
+pos[["L1PA3_22p13_1"]]
+pos[["L1PA3_15p13_2"]]
 
 ###### WRITE PASS ELEMENTS IN VARIOUS FILE FORMATS
 # gtf
@@ -153,25 +157,60 @@ writeXStringSet(flsspass, paste0(outputdir, "l1hspa2intact.fa"))
 
 
 # ORF1 AND ORF2 SEQUENCE ANALYSES
+# cannonical locations of RT and EN in ORF2 protein
+RTcoords <- c(498, 773)
+ENcoords <- c(1, 239)
+RTcoordsnt <- 3 * RTcoords
+ENcoordsnt <- 3 * ENcoords
+
+
 orf1 <- list()
 orf2 <- list()
+element_ann_df <- tibble()
 for (element in pass) {
     print(element)
     firstorf <- pos[[element]][1]
-
     secondorf <- pos[[element]][2]
+    firstorfrow <- firstorf %>%
+        as.data.frame() %>%
+        tibble() %>%
+        dplyr::select(start, end) %>%
+        mutate(gene_id = element) %>%
+        mutate(feature = "ORF1")
+    secondorfrow <- secondorf %>%
+        as.data.frame() %>%
+        tibble() %>%
+        dplyr::select(start, end) %>%
+        mutate(gene_id = element) %>%
+        mutate(feature = "ORF2")
+    enrow <- tibble(start = secondorfdf$start, end = secondorfdf$start + ENcoordsnt[2]) %>%
+        mutate(gene_id = element) %>%
+        mutate(feature = "EN")
+    rtrow <- tibble(start = secondorfdf$start + RTcoordsnt[1], end = secondorfdf$start + RTcoordsnt[2]) %>%
+        mutate(gene_id = element) %>%
+        mutate(feature = "RT")
+    X5UTRrow <- tibble(start = 1, end = firstorfdf$start - 1) %>%
+        mutate(gene_id = element) %>%
+        mutate(feature = "5UTR")
+    X3UTRrow <- tibble(start = secondorfdf$end + 1, end = length(flsspass[[element]])) %>%
+        mutate(gene_id = element) %>%
+        mutate(feature = "3UTR")
 
+    element_ann_df <- rbind(element_ann_df, X5UTRrow, firstorfrow, enrow, rtrow, secondorfrow, X3UTRrow)
     orf1[[element]] <- flss[[element]][firstorf]
     orf2[[element]] <- flss[[element]][secondorf]
 }
+
+write_delim(element_ann_df %>% dplyr::select(gene_id, start, end, feature), paste0(outputdir, "/intact_l1_anatomy_coordinates.tsv"), delim = "\t", col_names = TRUE)
+
+
 orf1ss <- DNAStringSet(orf1)
 orf2ss <- DNAStringSet(orf2)
 
 orf1ps <- Biostrings::translate(orf1ss)
 orf2ps <- Biostrings::translate(orf2ss)
 
-RTcoords <- c(498, 773)
-ENcoords <- c(1, 239)
+
 ENps <- subseq(orf2ps, start = ENcoords[1], end = ENcoords[2])
 RTps <- subseq(orf2ps, start = RTcoords[1], end = RTcoords[2])
 
@@ -295,37 +334,90 @@ mysave("orf2identHist.png")
 start_dir <- getwd()
 setwd(outputdir)
 writeXStringSet(flsspass, "flsspass.fa")
+l1hs_intact <- flsspass[grepl("L1HS", names(flsspass))]
+writeXStringSet(l1hs_intact, "l1hs_intact.fa")
+l1pa2_intact <- flsspass[grepl("L1PA2", names(flsspass))]
+writeXStringSet(l1pa2_intact, "l1pa2_intact.fa")
 system("echo $(pwd); mafft --auto flsspass.fa > flss.aln.fa")
+system("echo $(pwd); mafft --auto l1hs_intact.fa > l1hs_intact.aln.fa")
 
-aln <- read.alignment("flss.aln.fa", format = "fasta")
+l1hs_intact_aln <- read.alignment("l1hs_intact.aln.fa", format = "fasta")
+d <- dist.alignment(l1hs_intact_aln, "identity", gap = FALSE)
+d_gapped <- dist.alignment(l1hs_intact_aln, "identity", gap = TRUE)
 
-d <- dist.alignment(aln, "identity")
-treeA <- fastme.bal(d)
-tree <- as.treedata(treeA)
+# this is the pct difference in identity between sequences
+dsqaured <- 100 * d**2
+d_gappedsquared <- 100 * d_gapped**2
+
+tree_raw <- as.treedata(fastme.bal(dsqaured))
+treegapped_raw <- as.treedata(fastme.bal(d_gappedsquared))
 # to df for further modifications
-x <- as_tibble(tree)
-t <- x %>%
+ttibble_raw <- as_tibble(tree_raw)
+ttibblegapped_raw <- as_tibble(treegapped_raw)
+
+ttibble_raw <- ttibble_raw %>%
     mutate(group = str_extract(label, "L1HS|L1PA2")) %>%
     mutate(group = factor(group, levels = c("L1HS", "L1PA2"))) %>%
     mutate(ref_status = ifelse(grepl("-", label), "nonref", "ref"))
-tree1 <- as.treedata(t)
 
-tree2 <- as.phylo(t)
+ttibblegapped_raw <- ttibblegapped_raw %>%
+    mutate(group = str_extract(label, "L1HS|L1PA2")) %>%
+    mutate(group = factor(group, levels = c("L1HS", "L1PA2"))) %>%
+    mutate(ref_status = ifelse(grepl("-", label), "nonref", "ref"))
 
-p <- ggtree(tree1) +
+l1hs_intact_tree <- as.treedata(ttibble_raw)
+l1hs_intact_tree_gapped <- as.treedata(ttibblegapped_raw)
+
+p <- ggtree(l1hs_intact_tree, layout = "fan") +
+    geom_treescale() +
+    geom_tippoint(aes(color = group)) +
+    ggtitle("L1HS ORF1&2 Intact Phylogeny")
+mysave("l1hs_intact_tree_fan.png", w = 7, h = 7)
+
+p <- ggtree(l1hs_intact_tree) +
     geom_treescale() +
     geom_tippoint(aes(color = group)) +
     geom_tiplab(aes(label = label)) +
-    ggtitle("L1HS and L1PA2 ORF1&2 Intact Phylogeny")
+    theme_tree2() +
+    xlab("% Mutation") +
+    ggtitle("L1HS ORF1&2 Intact Phylogeny")
+mysave("l1hs_intact_tree.png", w = 5, h = 20)
 
-mysave("flsspassTree.png", w = 5, h = 20)
+p <- ggtree(l1hs_intact_tree_gapped) +
+    geom_treescale() +
+    geom_tippoint(aes(color = group)) +
+    geom_tiplab(aes(label = label)) +
+    theme_tree2() +
+    xlab("% Mutation") +
+    ggtitle("L1HS ORF1&2 Intact Phylogeny")
+
+mysave("l1hs_intact_tree_gapped.png", w = 5, h = 20)
 
 # tree with msa
-aln1 <- readDNAMultipleAlignment("flss.aln.fa", format = "fasta")
+l1hs_intact_aln <- readDNAMultipleAlignment("l1hs_intact.aln.fa", format = "fasta")
+consensus <- consensusString(l1hs_intact_aln)
+l1hs_intact_aln_ss <- as(l1hs_intact_aln, "DNAStringSet")
+temp <- c(l1hs_intact_aln_ss %>% as.character(), consensus %>% as.character() %>% setNames("consensus"))
+l1hs_intact_aln_c <- DNAMultipleAlignment(temp)
+l1hs_intact_aln_ss_c <- as(l1hs_intact_aln_c, "DNAStringSet")
+writeXStringSet(l1hs_intact_aln_ss_c, file = "l1hs_intact_alnWconensus.fa")
+p <- simplot("l1hs_intact_alnWconensus.fa", "consensus", window = 1, group = TRUE, id = 1, sep = "_") +
+    ggtitle("L1HS ORF1&2 Intact Consensus Accuracy") +
+    mytheme
+mysave("l1hs_intact_alnWconensus_similarity.png", w = 10, h = 5)
+
+p <- simplot("l1hs_intact_alnWconensus.fa", "consensus", window = 1, group = TRUE, id = 1, sep = "_") +
+    ggtitle("L1HS ORF1&2 Intact Consensus Accuracy") +
+    geom_hline(yintercept = 0.95, col = "red", lty = 2) +
+    mytheme
+mysave("l1hs_intact_alnWconensus_similarity_ONTdRNAerror.png", w = 10, h = 5)
+
+
 data <- tidy_msa(aln1, 1, 100)
 p <- ggtree(tree1) +
     geom_treescale() +
-    geom_tippoint(aes(color = group)) +
+    group
+geom_tippoint(aes(color = group)) +
     geom_tiplab(aes(label = label)) +
     ggtitle("L1HS and L1PA2 ORF1&2 Intact Phylogeny") +
     geom_facet(geom = geom_msa, data = data, panel = "msa", font = NULL)
@@ -338,7 +430,18 @@ mysave("flsspasstreemsa.png", w = 10, h = 20)
 # mapping <- aes(xmin = start, xmax = end, fill = gene, forward = direction)
 # my_pal <- colorRampPalette(rev(brewer.pal(n = 10, name = "Set3")))
 
-# data <- tidy_msa(aln1, 1, 100)
+data <- tidy_msa(aln1, 1, 100)
+
+aln1
+alnSubset <- as(
+    DNAMultipleAlignment(unmasked(aln1)[1:3]),
+    "DNAMultipleAlignment"
+)
+
+aln1
+
+
+
 # datagenes <- brestidy %>%
 #     mutate(molecule = QueryID, start = Q.start_l1.3, end = Q.end_l1.3) %>%
 #     dplyr::select(molecule, start, end)
