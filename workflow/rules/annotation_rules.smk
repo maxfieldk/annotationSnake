@@ -216,10 +216,24 @@ awk '!/#/ {{print}}' {input.annot} | sort -k1,1V -k4,4n -k5,5n -t '\t'| bgzip > 
 tabix -p gff {input.annot}.gz
         """
 
+rule get2bitgenome:
+    input:
+        ref = "ref.fa"
+    output:
+        genome2bit = "ref.2bit"
+    conda:
+        "omics"
+    shell:
+        """
+faToTwoBit {input.ref} {output.genome2bit}
+        """
+
+
 rule makeTxDB:
     input:
         refseq = "annotations/refseq.gff3",
-        repeatmasker = "annotations/repeatmasker.complete.gff3"
+        repeatmasker = "annotations/repeatmasker.complete.gff3",
+        genome2bit = "ref.2bit"
     output:
         txdb = "annotations/repeatmasker_refseq.complete.sqlite",
         txdbrefseq = "annotations/refseq.sqlite",
@@ -229,7 +243,7 @@ rule makeTxDB:
     conda:
         "repeatanalysis"
     script:
-        "scripts/txdb.R"
+        "scripts/txdbBSgenome.R"
 
 rule get_transcriptome:
     input:
@@ -320,12 +334,15 @@ rule cpgIslandFun:
 rule copySelectAnnotations:
     params:
         ref_cytobands = config["ref_cytobands"],
-        ref_telomere = config["ref_telomere"]
+        ref_telomere = config["ref_telomere"],
+        ref_ccres = config["ref_ccres"]
     output:
         ref_cytobands = "annotations/cytobands.bed",
-        ref_telomere = "annotations/telomeres.bed"
+        ref_telomere = "annotations/telomeres.bed",
+        ref_ccres = "annotations/ccres.bed"
     shell:
         """
 cp {params.ref_cytobands} {output.ref_cytobands}
 cp {params.ref_telomere} {output.ref_telomere}
+cp {params.ref_ccres} {output.ref_ccres}
         """

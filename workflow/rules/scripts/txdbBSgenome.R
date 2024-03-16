@@ -35,3 +35,17 @@ txdbrefseq <- makeTxDbFromGRanges(grs_refseq)
 saveDb(txdb, file = snakemake@output$txdb)
 saveDb(txdbrefseq, file = snakemake@output$txdbrefseq)
 saveDb(txdbrepeatmasker, file = snakemake@output$txdbrepeatmasker)
+
+
+# library(Biostrings)
+# library(BSgenome)
+
+
+# seed_files <- system.file("extdata", "GentlemanLab", package = "BSgenome")
+# t2tseed <- grep("T2T.*seed", list.files(seed_files, full.names = TRUE), value = TRUE)
+# t2tseedlines <- cat(readLines(t2tseed), sep = "\n") %>% as.character()
+# gsub("Package: ", "Package: CustomBSgenome Ignore details below")
+
+# keylist <- list(
+#     "Package" = "BSgenome.Hsapiens."
+# )
